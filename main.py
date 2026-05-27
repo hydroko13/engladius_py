@@ -10,7 +10,16 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx, vsync=1)
+        windowed = True
+
+        if windowed:
+            self.window = pygame.display.set_mode(
+                (960, 540),
+                display=mon_idx,
+                vsync=1,
+            )
+        else:
+            self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx, vsync=1)
         self.game_surf = pygame.Surface(self.base_size).convert()
         self.clock = pygame.time.Clock()
         self.dt = 0.0
@@ -52,9 +61,9 @@ class Game:
                 packet = struct.pack('!I', len(data))
 
                 server_writer.write(packet + data)
-                
+
                 await server_writer.drain()
-                
+
         except asyncio.CancelledError:
             pass
 
@@ -72,8 +81,6 @@ class Game:
             self.outgoing_queue.put_nowait(b'p' + struct.pack('!ii', int(self.player.pos[0]), int(self.player.pos[1])))
             self.pos_broadcast_tick = 0.0
         self.pos_broadcast_tick += self.dt
-
-        
 
     async def run(self):
 
@@ -96,18 +103,18 @@ class Game:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self.done = True
-                        
+
             packets = []
-                        
+
             while True:
                 try:
                     packet = self.incoming_queue.get_nowait()
-                    
+
                     packets.append(packet)
-                    
+
                 except asyncio.QueueEmpty:
                     break
-                
+
             for packet in packets:
                 first_byte = packet[:1]
                 if first_byte == b'p':
@@ -117,8 +124,7 @@ class Game:
                         self.other_players[i] = Player(0, 0)
                     print(x, y)
                     self.other_players[i].target = [x, y]
-            
-                
+
             self.window.fill((0, 0, 0))
             self.game_surf.fill((0, 120, 100))
 
