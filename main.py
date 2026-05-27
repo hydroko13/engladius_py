@@ -1,14 +1,16 @@
 import asyncio
 import pygame
 import struct
+from player import Player
+import socket
 
 class Game:
     def __init__(self):
 
-        self.base_size = (320, 180)
+        self.base_size = (480, 270)
 
         mon_idx = 0
-        self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx)
+        self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx, vsync=1)
         self.game_surf = pygame.Surface(self.base_size).convert()
         self.clock = pygame.time.Clock()
         self.dt = 0.0
@@ -17,6 +19,11 @@ class Game:
 
         self.incoming_queue = asyncio.Queue()
         self.outgoing_queue = asyncio.Queue()
+
+        self.player = Player(self.base_size[0]/2, self.base_size[1]/2, True)
+        self.other_players = {}
+        self.pos_broadcast_tick = 0.0
+        self.pos_broadcast_rate = 40
 
     async def read_loop(self, server_reader):
         try:
@@ -36,6 +43,7 @@ class Game:
     async def write_loop(self, server_writer):
         try:
             while True:
+
                 data = await self.outgoing_queue.get()
 
                 if data is None:
@@ -44,13 +52,35 @@ class Game:
                 packet = struct.pack('!I', len(data))
 
                 server_writer.write(packet + data)
+                
                 await server_writer.drain()
+                
         except asyncio.CancelledError:
             pass
+
+    def draw(self):
+        self.player.draw(self.game_surf)
+        for i, p in self.other_players.items():
+            p.draw(self.game_surf)
+
+    def update(self):
+        self.player.update(self.dt)
+        for i, p in self.other_players.items():
+            p.update(self.dt)
+
+        if self.pos_broadcast_tick >= 1 / self.pos_broadcast_rate:
+            self.outgoing_queue.put_nowait(b'p' + struct.pack('!ii', int(self.player.pos[0]), int(self.player.pos[1])))
+            self.pos_broadcast_tick = 0.0
+        self.pos_broadcast_tick += self.dt
+
+        
 
     async def run(self):
 
         server_reader, server_writer = await asyncio.open_connection('127.0.0.1', 9999)
+
+        sock = server_writer.get_extra_info("socket")
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         read_task = asyncio.create_task(self.read_loop(server_reader))
         write_task = asyncio.create_task(self.write_loop(server_writer))
@@ -73,18 +103,28 @@ class Game:
                 try:
                     packet = self.incoming_queue.get_nowait()
                     
-                    print(packet)
-                    
                     packets.append(packet)
                     
                 except asyncio.QueueEmpty:
                     break
                 
             for packet in packets:
-                print(packet)
+                first_byte = packet[:1]
+                if first_byte == b'p':
+                    i, x, y = struct.unpack_from('!Iii', packet[1:])
+
+                    if i not in self.other_players:
+                        self.other_players[i] = Player(0, 0)
+                    print(x, y)
+                    self.other_players[i].target = [x, y]
+            
                 
             self.window.fill((0, 0, 0))
-            self.game_surf.fill((15, 40, 36))
+            self.game_surf.fill((0, 120, 100))
+
+            self.update()
+
+            self.draw()
 
             scaled_surf = pygame.transform.scale_by(
                 self.game_surf,
