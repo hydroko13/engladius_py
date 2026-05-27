@@ -124,6 +124,9 @@ class Game:
                         self.other_players[i] = Player(0, 0)
                     print(x, y)
                     self.other_players[i].target = [x, y]
+                elif first_byte == b'l':
+                    i, = struct.unpack_from("!I", packet[1:])
+                    del self.other_player[i]
 
             self.window.fill((0, 0, 0))
             self.game_surf.fill((0, 120, 100))

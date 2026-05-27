@@ -3,6 +3,7 @@ import struct
 from dataclasses import dataclass
 import socket
 import time
+from typing import List
 
 def find_mex(numbers):
     num_set = set(numbers)
@@ -17,6 +18,7 @@ def find_mex(numbers):
 class Player:
     x: int
     y: int
+    leave_broadcasts_scheduled: List[int]
 
 
 class ClientDisconnected(Exception):
@@ -56,6 +58,13 @@ async def write_loop(writer, player_id):
 
             for other_player_id, other_player in players_snapshot:
                 if other_player_id != player_id and other_player_id in players:
+                    leave_broadcast = None
+                    if len(players[player_id].leave_broadcasts_scheduled) > 0:
+
+                        leave_broadcast = players[
+                            player_id
+                        ].leave_broadcasts_scheduled.pop(0)
+
                     buf = b"p" + struct.pack(
                         "!Iii",
                         other_player_id,
@@ -63,6 +72,13 @@ async def write_loop(writer, player_id):
                         int(other_player.y),
                     )
                     writer.write(struct.pack("!I", len(buf)) + buf)
+                    
+                    if leave_broadcast is not None: 
+
+                        buf = b"l" + struct.pack("!I", leave_broadcast)
+
+                        writer.write(struct.pack("!I", len(buf)) + buf)
+                        
 
             await writer.drain()
             await asyncio.sleep(0.05)
@@ -81,14 +97,16 @@ async def handle_client(reader, writer):
 
     print(f"Client at addr {address} connected")
     player_id = find_mex(players.keys())
-    players[player_id] = Player(0, 0)
+    players[player_id] = Player(0, 0, [])
 
     read_loop_task = asyncio.create_task(read_loop(reader, player_id))
 
     write_loop_task = asyncio.create_task(write_loop(writer, player_id))
 
     await asyncio.wait([read_loop_task, write_loop_task], return_when=asyncio.FIRST_COMPLETED)
-
+    
+    await writer.drain()
+    
     del players[player_id]
 
     print(f"Closing connection to {address}")
