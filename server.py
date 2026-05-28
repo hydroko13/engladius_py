@@ -1,129 +1,142 @@
-import asyncio
-import struct
-from dataclasses import dataclass
 import socket
+import struct
+import threading
 import time
-from typing import List
+from dataclasses import dataclass
+import typing
+from collections import deque
 
-def find_mex(numbers):
-    num_set = set(numbers)
-    
-    mex = 0
-    while mex in num_set:
-        mex += 1
+
+def recv_exact(sock, n_bytes):
+    buffer = bytearray()
+    while len(buffer) < n_bytes:
+        remaining = n_bytes - len(buffer)
         
-    return mex
+        chunk = sock.recv(remaining)
+        
+        if not chunk:
+            raise ConnectionAbortedError()
+            
+        buffer.extend(chunk)
+        
+    return bytes(buffer)
+
 
 @dataclass
 class Player:
     x: int
     y: int
-    leave_broadcasts_scheduled: List[int]
+    to_broadcast_join: deque
+    to_broadcast_left: deque
 
 
-class ClientDisconnected(Exception):
-    pass
+def find_mex(numbers):
+    num_set = set(numbers)
+    mex = 0
 
-players = {}
-
-async def read_loop(reader, player_id):
-    global players
-    while True:
-
-        try:
-            (packet_size,) = struct.unpack("!I", await reader.readexactly(4))
-
-            packet = await reader.readexactly(packet_size)
-
-            header = packet[:1]
-
-            if header == b'p':
-                x, y = struct.unpack_from(b'!ii', packet[1:])
-
-                players[player_id].x = x
-                players[player_id].y = y
-            
-
-        except (ConnectionError, asyncio.IncompleteReadError):
-            break
-
-
-async def write_loop(writer, player_id):
-    global players
-    while True:
-
-        try:
-
-            players_snapshot = list(players.items())
-
-            for other_player_id, other_player in players_snapshot:
-                if other_player_id != player_id and other_player_id in players:
-                    leave_broadcast = None
-                    if len(players[player_id].leave_broadcasts_scheduled) > 0:
-
-                        leave_broadcast = players[
-                            player_id
-                        ].leave_broadcasts_scheduled.pop(0)
-
-                    buf = b"p" + struct.pack(
-                        "!Iii",
-                        other_player_id,
-                        int(other_player.x),
-                        int(other_player.y),
-                    )
-                    writer.write(struct.pack("!I", len(buf)) + buf)
-                    
-                    if leave_broadcast is not None: 
-
-                        buf = b"l" + struct.pack("!I", leave_broadcast)
-
-                        writer.write(struct.pack("!I", len(buf)) + buf)
-                        
-
-            await writer.drain()
-            await asyncio.sleep(0.05)
-
-        except (ConnectionError, BrokenPipeError):
-            break
-
-
-async def handle_client(reader, writer):
-    global players
-
-    sock = writer.get_extra_info("socket")
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-    address = writer.get_extra_info('peername')
-
-    print(f"Client at addr {address} connected")
-    player_id = find_mex(players.keys())
-    players[player_id] = Player(0, 0, [])
-
-    read_loop_task = asyncio.create_task(read_loop(reader, player_id))
-
-    write_loop_task = asyncio.create_task(write_loop(writer, player_id))
-
-    await asyncio.wait([read_loop_task, write_loop_task], return_when=asyncio.FIRST_COMPLETED)
-    
-    await writer.drain()
-    
-    del players[player_id]
-
-    print(f"Closing connection to {address}")
-    try:
-        writer.close()
-        await writer.wait_closed()
-    except ConnectionError:
-        pass
-
-async def main():
-    server = await asyncio.start_server(handle_client, '127.0.0.1', 9999)
-    
-    async with server:
-        print("Server running on 127.0.0.1:9999")
+    while mex in num_set:
+        mex += 1
         
-        await server.serve_forever()
+    return mex
+
+
+class Server:
+    def __init__(self):
+        self.kill_event = threading.Event()
+        self.players = {
+
+        }
+        self.players_lock = threading.Lock()
+
+    def handle_client(self, conn, addr, kill_event):
+        
+
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        player_id = None
+        with self.players_lock:
+            player_id = find_mex(self.players.keys())    
+            print(f'Player {addr} (id: {player_id}) joined.')   
+            already_joined = list(self.players.keys())
+
+            self.players[player_id] = Player(0, 0, deque(already_joined), deque())
+            for player_id2, player in self.players.items():
+                if player_id2 != player_id:
+                    self.players[player_id2].to_broadcast_join.append(player_id)
+            
+        try:
+            conn.sendall(struct.pack('!I', player_id))
+
+            while not kill_event.is_set():
+
+                x, y = struct.unpack('!ii', recv_exact(conn, 8))
+                player_positions = {}
+                to_broadcast_join = []
+                to_broadcast_left = []
+                with self.players_lock:
+                    self.players[player_id].x = x
+                    self.players[player_id].y = y
+                    for i, p in self.players.items():
+                        player_positions[i] = (p.x, p.y)
+                    
+                    while len(self.players[player_id].to_broadcast_join) > 0:
+                        to_broadcast_join.append(self.players[player_id].to_broadcast_join.popleft())
+                    while len(self.players[player_id].to_broadcast_left) > 0:
+                        to_broadcast_left.append(self.players[player_id].to_broadcast_left.popleft())
+
+
+                count_joined = len(to_broadcast_join)
+
+                conn.sendall(struct.pack('!I', count_joined))
+
+                for player_joined_id in to_broadcast_join:
+                    conn.sendall(struct.pack('!I', player_joined_id))
+
+                count_left = len(to_broadcast_left)
+
+                conn.sendall(struct.pack('!I', count_left))
+
+                for player_left_id in to_broadcast_left:
+                    conn.sendall(struct.pack('!I', player_left_id))
+
+
+
+                
+
+                players_count = len(player_positions)
+                conn.sendall(struct.pack('!I', players_count))
+                
+
+                for player_id2, pos in player_positions.items():
+                    conn.sendall(struct.pack('!Iii', player_id2, pos[0], pos[1]))
+                
+                    
+                time.sleep(0.01)
+        except ConnectionError:
+            pass
+
+
+
+        print(f'Player {addr} (id: {player_id}) left.')
+        with self.players_lock:
+            del self.players[player_id]
+            for player_id2, player in self.players.items():
+                self.players[player_id2].to_broadcast_left.append(player_id)
+
+    def run(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            print("Starting server on 127.0.0.1:9999")
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(('127.0.0.1', 9999))
+            s.listen()
+            threads = []
+            while True:
+                conn, addr = s.accept()
+                thread = threading.Thread(target=self.handle_client, args=(conn, addr, self.kill_event))
+                thread.start()
+                threads.append(thread)
+
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    server = Server()
+    server.run()
