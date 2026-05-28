@@ -5,6 +5,7 @@ from player import Player
 import socket
 import time
 from camera import Camera
+from sword_jab import SwordJab
 
 
 def recv_exact(sock, n_bytes):
@@ -27,7 +28,7 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = True
+        windowed = False
 
         if windowed:
             self.window = pygame.display.set_mode(
@@ -50,24 +51,39 @@ class Game:
         self.other_players = {}
         self.cam = Camera()
         self.player_id = None
+        self.sword_jabs = []
 
 
     def draw(self):
+        
+        for j in self.sword_jabs:
+            j.draw(self.game_surf, self.cam)
+        
         with self.player_lock:
             self.player.draw(self.game_surf, self.cam)
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.draw(self.game_surf, self.cam)
+        
 
     def update(self):
+        f = False
+        for j in self.sword_jabs:
+            j.update(self.dt)
+            if j.state == 2:
+                f = True
+        self.sword_jabs = [j for j in self.sword_jabs if j.state != 2]
         p = None
         with self.player_lock:
             self.player.update(self.dt)
             p = self.player.pos[:]
+            if f:
+                self.player.attacking = False
         self.cam.update(p, self.dt)
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.update(self.dt)
+        
         
 
 
@@ -158,6 +174,18 @@ class Game:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self.done = True
+                    if event.key == pygame.K_o:
+                        pos = None
+                        d = ''
+                        a = None
+                        with self.player_lock:
+                            pos = self.player.pos[:]
+                            d = self.player.direction
+                            a = self.player.attacking
+                            if not a:
+                                self.player.attacking = True
+                        if not a:
+                            self.sword_jabs.append(SwordJab(pos, d))
 
             if self.crash_event.is_set():
                 self.done = True
