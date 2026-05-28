@@ -29,6 +29,7 @@ class Player:
     world_id: int
     to_broadcast_join: deque
     to_broadcast_left: deque
+    to_broadcast_gameevents: deque
 
 
 def find_mex(numbers):
@@ -63,7 +64,7 @@ class Server:
             print(f'Player {addr} (id: {player_id}) joined.')   
             already_joined = self.players.items()
 
-            self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque()) # x, y, world, etc... (the 3rd zero is the world_id)
+            self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque()) # x, y, world, etc... (the 3rd zero is the world_id)
             for player_id2, player in self.players.items():
                 if player_id2 != player_id:
                     self.players[player_id2].to_broadcast_join.append((player_id, 0)) # join world 0
@@ -76,6 +77,7 @@ class Server:
                 player_positions = {}
                 to_broadcast_join = []
                 to_broadcast_left = []
+                to_broadcast_gameevents = []
                 with self.players_lock:
                     self.players[player_id].x = x
                     self.players[player_id].y = y
@@ -92,6 +94,12 @@ class Server:
                         left_id, world_id = self.players[player_id].to_broadcast_left.popleft()
                         if world_id == current_world:
                             to_broadcast_left.append(left_id)
+                    while len(self.players[player_id].to_broadcast_gameevents) > 0:
+                        event_data, world_id = self.players[
+                            player_id
+                        ].to_broadcast_gameevents.popleft()
+                        if world_id == current_world:
+                            to_broadcast_gameevents.append(event_data)
 
                 count_joined = len(to_broadcast_join)
 
@@ -106,6 +114,36 @@ class Server:
 
                 for player_left_id in to_broadcast_left:
                     conn.sendall(struct.pack('!I', player_left_id))
+
+                count_events = len(to_broadcast_gameevents)
+
+                conn.sendall(struct.pack("!I", count_events))
+
+                for e in to_broadcast_gameevents:
+                    conn.sendall(struct.pack("!I", len(e)))
+                    conn.sendall(e)
+
+                len_sent_events = struct.unpack('!I', recv_exact(conn, 4))[0]
+                sent_new_events = []
+
+                for i in range(len_sent_events):
+                    len_event = struct.unpack("!I", recv_exact(conn, 4))[0]
+                    event = recv_exact(conn, len_event)
+                    sent_new_events.append(event)
+
+                for e in sent_new_events:
+                    if e[:1] == b'A':
+                        attack_id, x, y, direction = struct.unpack('!BiiB', e[1:])
+
+                        if attack_id == 0:
+                            with self.players_lock:
+                                for player_id2 in self.players.keys():
+                                    if player_id2 != player_id:
+                                        self.players[
+                                            player_id2
+                                        ].to_broadcast_gameevents.append(
+                                            (e, current_world)
+                                        )
 
                 players_count = len(player_positions)
                 conn.sendall(struct.pack('!I', players_count))

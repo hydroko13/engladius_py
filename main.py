@@ -6,6 +6,7 @@ import socket
 import time
 from camera import Camera
 from sword_jab import SwordJab
+import queue
 
 
 def recv_exact(sock, n_bytes):
@@ -28,7 +29,7 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = False
+        windowed = True
 
         if windowed:
             self.window = pygame.display.set_mode(
@@ -52,19 +53,24 @@ class Game:
         self.cam = Camera()
         self.player_id = None
         self.sword_jabs = []
-
+        self.events_to_server_queued = queue.Queue()
+        self.other_player_sword_jabs = []
+        self.other_player_sword_jabs_lock = threading.Lock()
 
     def draw(self):
-        
+
         for j in self.sword_jabs:
             j.draw(self.game_surf, self.cam)
-        
+
+        with self.other_player_sword_jabs_lock:
+            for j in self.other_player_sword_jabs:
+                j.draw(self.game_surf, self.cam)
+
         with self.player_lock:
             self.player.draw(self.game_surf, self.cam)
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.draw(self.game_surf, self.cam)
-        
 
     def update(self):
         f = False
@@ -72,7 +78,17 @@ class Game:
             j.update(self.dt)
             if j.state == 2:
                 f = True
+
         self.sword_jabs = [j for j in self.sword_jabs if j.state != 2]
+
+        with self.other_player_sword_jabs_lock:
+            for j in self.other_player_sword_jabs:
+                j.update(self.dt)
+
+            self.other_player_sword_jabs = [
+                j for j in self.other_player_sword_jabs if j.state != 2
+            ]
+
         p = None
         with self.player_lock:
             self.player.update(self.dt)
@@ -83,9 +99,6 @@ class Game:
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.update(self.dt)
-        
-        
-
 
     def network_thread(self, kill_event, crash_event):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -99,9 +112,7 @@ class Game:
                 self.player_id = player_id
                 last_time = time.monotonic()
 
-
                 while not kill_event.is_set():
-
 
                     t = time.monotonic()
                     dt = t - last_time
@@ -124,7 +135,24 @@ class Game:
                     for _ in range(left_count):
                         left.append(struct.unpack("!I", recv_exact(s, 4))[0])
 
+                    event_count = struct.unpack("!I", recv_exact(s, 4))[0]
+                    new_events = []
 
+                    for _ in range(event_count):
+                        l = struct.unpack("!I", recv_exact(s, 4))[0]
+                        new_events.append(recv_exact(s, l))
+
+                    events_to_send = []
+                    while True:
+                        try:
+                            events_to_send.append(self.events_to_server_queued.get_nowait())
+                        except queue.Empty:
+                            break
+
+                    s.sendall(struct.pack('!I', len(events_to_send)))
+
+                    for e in events_to_send:
+                        s.sendall(struct.pack("!I", int(len(e))) + e)
 
                     players_count = struct.unpack("!I", recv_exact(s, 4))[0]
 
@@ -141,15 +169,26 @@ class Game:
 
                         for l in left:
                             del self.other_players[l]
-                
 
+                    for e in new_events:
+                        if e[:1] == b'A':
+                            attack_byte, x, y, direction_byte = struct.unpack('!BiiB', e[1:])
+                            direction_string = ''
+                            if direction_byte == 0: 
+                                direction_string = 'left'
+                            elif direction_byte == 1: 
+                                direction_string = 'right'
+                            elif direction_byte == 2: 
+                                direction_string = 'down'
+                            elif direction_byte == 3: 
+                                direction_string = 'up'
 
-                        
+                            if attack_byte == 0: # SWORD
 
-                        
-                    
-                    
-                    
+                                with self.other_player_sword_jabs_lock:
+                                    self.other_player_sword_jabs.append(
+                                        SwordJab([x, y], direction_string)
+                                    )
 
                     time.sleep(0.01)
 
@@ -158,9 +197,8 @@ class Game:
                 crash_event.set()
                 pass
 
-
     def run(self):
-        
+
         net_thread = threading.Thread(target=self.network_thread, args=(self.kill_event, self.crash_event))
         net_thread.start()
 
@@ -175,6 +213,7 @@ class Game:
                     if event.key == pygame.K_ESCAPE:
                         self.done = True
                     if event.key == pygame.K_o:
+
                         pos = None
                         d = ''
                         a = None
@@ -186,11 +225,22 @@ class Game:
                                 self.player.attacking = True
                         if not a:
                             self.sword_jabs.append(SwordJab(pos, d))
+                            db = None
+                            if d == 'left':
+                                db = 0
+                            elif d == 'right':
+                                db = 1
+                            elif d == 'down':
+                                db = 2
+                            elif d == 'up':
+                                db = 3
+                            self.events_to_server_queued.put_nowait(
+                                b"A"
+                                + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
+                            )
 
             if self.crash_event.is_set():
                 self.done = True
-           
-
 
             self.window.fill((0, 0, 0))
             self.game_surf.fill((0, 120, 100))

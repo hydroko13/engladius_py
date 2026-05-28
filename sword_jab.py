@@ -14,7 +14,7 @@ class SwordJab:
         img = None
         offx = 0
         offy = 0
-
+        
         if self.direction == 'right':
             img = pygame.transform.rotate(self.img, -90)
             offx = self.extension_offset
@@ -31,6 +31,7 @@ class SwordJab:
             img = pygame.transform.rotate(self.img, 180)
             offx = 0
             offy = self.extension_offset
+        
         p = cam.offset_point(self.pos)
         surf.blit(img, (p[0] - 16 + offx, p[1] - 16 + offy))
 
