@@ -90,7 +90,7 @@ class Game:
     def network_thread(self, kill_event, crash_event):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.connect(('127.0.0.1', 9999))
+                s.connect(('10.178.162.117', 9999))
 
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
