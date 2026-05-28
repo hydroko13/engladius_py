@@ -4,6 +4,7 @@ import struct
 from player import Player
 import socket
 import time
+from camera import Camera
 
 
 def recv_exact(sock, n_bytes):
@@ -47,21 +48,27 @@ class Game:
         self.player_lock = threading.Lock()
         self.other_players_lock = threading.Lock()
         self.other_players = {}
+        self.cam = Camera()
         self.player_id = None
+
 
     def draw(self):
         with self.player_lock:
-            self.player.draw(self.game_surf)
+            self.player.draw(self.game_surf, self.cam)
         with self.other_players_lock:
             for i, p in self.other_players.items():
-                p.draw(self.game_surf)
+                p.draw(self.game_surf, self.cam)
 
     def update(self):
+        p = None
         with self.player_lock:
             self.player.update(self.dt)
+            p = self.player.pos[:]
+        self.cam.update(p, self.dt)
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.update(self.dt)
+        
 
 
     def network_thread(self, kill_event, crash_event):
