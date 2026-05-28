@@ -50,14 +50,18 @@ class Game:
         self.player_id = None
 
     def draw(self):
-        self.player.draw(self.game_surf)
-        for i, p in self.other_players.items():
-            p.draw(self.game_surf)
+        with self.player_lock:
+            self.player.draw(self.game_surf)
+        with self.other_players_lock:
+            for i, p in self.other_players.items():
+                p.draw(self.game_surf)
 
     def update(self):
-        self.player.update(self.dt)
-        for i, p in self.other_players.items():
-            p.update(self.dt)
+        with self.player_lock:
+            self.player.update(self.dt)
+        with self.other_players_lock:
+            for i, p in self.other_players.items():
+                p.update(self.dt)
 
 
     def network_thread(self, kill_event, crash_event):
