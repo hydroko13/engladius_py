@@ -30,6 +30,7 @@ class Player:
     to_broadcast_join: deque
     to_broadcast_left: deque
     to_broadcast_gameevents: deque
+    audio_packets_to_send: deque
 
 
 def find_mex(numbers):
@@ -64,7 +65,7 @@ class Server:
             print(f'Player {addr} (id: {player_id}) joined.')   
             already_joined = self.players.items()
 
-            self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque()) # x, y, world, etc... (the 3rd zero is the world_id)
+            self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque(), deque()) # x, y, world, etc... (the 3rd zero is the world_id)
             for player_id2, player in self.players.items():
                 if player_id2 != player_id:
                     self.players[player_id2].to_broadcast_join.append((player_id, 0)) # join world 0
@@ -78,6 +79,7 @@ class Server:
                 to_broadcast_join = []
                 to_broadcast_left = []
                 to_broadcast_gameevents = []
+                to_send_audio_packets = []
                 with self.players_lock:
                     self.players[player_id].x = x
                     self.players[player_id].y = y
@@ -100,6 +102,18 @@ class Server:
                         ].to_broadcast_gameevents.popleft()
                         if world_id == current_world:
                             to_broadcast_gameevents.append(event_data)
+                    while len(self.players[player_id].audio_packets_to_send) > 0:
+                        audio_packet, world_id = self.players[
+                            player_id
+                        ].audio_packets_to_send.popleft()
+                        if world_id == current_world:
+                            to_send_audio_packets.append(audio_packet)
+
+                audio_packets_count = len(to_send_audio_packets)
+
+                conn.sendall(struct.pack('!I', audio_packets_count))
+                for audiopacket in to_send_audio_packets:
+                    conn.sendall(audiopacket)
 
                 count_joined = len(to_broadcast_join)
 
@@ -150,6 +164,15 @@ class Server:
 
                 for player_id2, pos in player_positions.items():
                     conn.sendall(struct.pack('!Iii', player_id2, pos[0], pos[1]))
+
+                audio_data = recv_exact(conn, 800)
+
+                with self.players_lock:
+                    for player_id2 in self.players.keys():
+                        if player_id2 != player_id:
+                            self.players[player_id2].audio_packets_to_send.append((audio_data, current_world))
+
+
 
                 time.sleep(0.01)
         except ConnectionError:
