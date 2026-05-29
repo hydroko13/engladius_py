@@ -165,14 +165,17 @@ class Server:
                 for player_id2, pos in player_positions.items():
                     conn.sendall(struct.pack('!Iii', player_id2, pos[0], pos[1]))
 
-                audio_data = recv_exact(conn, 800)
+                audio_packets_count_recv = struct.unpack('!I', recv_exact(conn, 4))[0]
+                audio_data = []
+
+                for _ in range(audio_packets_count_recv):
+                    audio_data.append(recv_exact(conn, 800))
 
                 with self.players_lock:
-                    for player_id2 in self.players.keys():
-                        if player_id2 != player_id:
-                            self.players[player_id2].audio_packets_to_send.append((audio_data, current_world))
-
-
+                    for a in audio_data:
+                        for player_id2 in self.players.keys():
+                            if player_id2 != player_id:
+                                self.players[player_id2].audio_packets_to_send.append((a, current_world))
 
                 time.sleep(0.01)
         except ConnectionError:

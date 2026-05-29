@@ -69,27 +69,22 @@ class Game:
                 pos = (x * 16, y * 16)
                 tilesurf.blit(self.grass_tile, pos)
 
-
         self.tilemap_layer_surfaces.append(tilesurf)
 
         self.audio = pyaudio.PyAudio()
 
-        
-        self.mic_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, input=True, frames_per_buffer=1024, channels=1)
-        self.out_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, output=True, frames_per_buffer=1024, channels=1)
+        self.mic_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, input=True, frames_per_buffer=self.mic_chunk_size, channels=1)
+        self.out_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, output=True, frames_per_buffer=self.mic_chunk_size, channels=1)
         self.audio_data_to_send = queue.Queue()
         self.audio_data_to_play = queue.Queue()
-    
 
     def draw(self):
 
-        
         for l in self.tilemap_layer_surfaces:
             self.game_surf.blit(l, self.cam.offset_point((-100 * 16, -100 * 16)))
 
         for j in self.sword_jabs:
             j.draw(self.game_surf, self.cam)
-
 
         with self.other_player_sword_jabs_lock:
             for j in self.other_player_sword_jabs:
@@ -131,27 +126,30 @@ class Game:
 
     def mic_thread(self, kill_event, crash_event):
         while not kill_event.is_set():
+
             data = None
             try:
                 data = self.mic_stream.read(self.mic_chunk_size)
             except IOError as e:
                 if e.errno == -9981:
                     data = b'\x00\x00' * self.mic_chunk_size
+
             self.audio_data_to_send.put_nowait(data)
-            print(self.audio_data_to_send.qsize())
-    
+
     def speakerplay_thread(self, kill_event, crash_event):
         while not kill_event.is_set():
-            data = self.audio_data_to_play.get()
+
+            data = None
+            try:
+                data = self.audio_data_to_play.get_nowait()
+            except queue.Empty:
+                data = b'\x00\x00' * self.mic_chunk_size
             self.out_stream.write(data)
-            print(self.audio_data_to_play.qsize())
-    
-    
 
     def network_thread(self, kill_event, crash_event):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.connect(('10.0.0.97', 9999))
+                s.connect(("10.178.162.117", 9999))
 
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
@@ -175,8 +173,6 @@ class Game:
                     for _ in range(audio_packets_len):
                         audio_packet = recv_exact(s, 800)
                         self.audio_data_to_play.put_nowait(audio_packet)
-                    
-
 
                     joined_count = struct.unpack("!I", recv_exact(s, 4))[0]
                     joined = []
@@ -245,13 +241,18 @@ class Game:
                                         SwordJab([x, y], direction_string)
                                     )
 
-                    audio_packet = None
-                    try:
-                        audio_packet = self.audio_data_to_send.get_nowait()
-                    except queue.Empty:
-                        audio_packet = b'\x00\x00' * self.mic_chunk_size
+                    audio_packets_to_send = []
+                    while True:
+                        try:
+                            audio_packet = self.audio_data_to_send.get_nowait()
+                            audio_packets_to_send.append(audio_packet)
+                        except queue.Empty:
+                            break
 
-                    s.sendall(audio_packet)
+                    s.sendall(struct.pack('!I', len(audio_packets_to_send)))
+                    
+                    for p in audio_packets_to_send:
+                        s.sendall(p)
 
                     time.sleep(0.01)
 
