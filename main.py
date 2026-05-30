@@ -8,8 +8,6 @@ from camera import Camera
 from sword_jab import SwordJab
 import queue
 import os
-import pyaudio
-
 
 def recv_exact(sock, n_bytes):
     buffer = bytearray()
@@ -71,12 +69,6 @@ class Game:
 
         self.tilemap_layer_surfaces.append(tilesurf)
 
-        self.audio = pyaudio.PyAudio()
-
-        self.mic_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, input=True, frames_per_buffer=self.mic_chunk_size, channels=1)
-        self.out_stream = self.audio.open(format = pyaudio.paInt16, rate=16000, output=True, frames_per_buffer=self.mic_chunk_size, channels=1)
-        self.audio_data_to_send = queue.Queue()
-        self.audio_data_to_play = queue.Queue()
 
     def draw(self):
 
@@ -124,32 +116,10 @@ class Game:
             for i, p in self.other_players.items():
                 p.update(self.dt)
 
-    def mic_thread(self, kill_event, crash_event):
-        while not kill_event.is_set():
-
-            data = None
-            try:
-                data = self.mic_stream.read(self.mic_chunk_size)
-            except IOError as e:
-                if e.errno == -9981:
-                    data = b'\x00\x00' * self.mic_chunk_size
-
-            self.audio_data_to_send.put_nowait(data)
-
-    def speakerplay_thread(self, kill_event, crash_event):
-        while not kill_event.is_set():
-
-            data = None
-            try:
-                data = self.audio_data_to_play.get_nowait()
-            except queue.Empty:
-                data = b'\x00\x00' * self.mic_chunk_size
-            self.out_stream.write(data)
-
     def network_thread(self, kill_event, crash_event):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.connect(("10.178.162.117", 9999))
+                s.connect(("10.0.0.97", 9999))
 
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
@@ -168,11 +138,6 @@ class Game:
                         player_pos = (self.player.pos[0], self.player.pos[1])
 
                     s.sendall(struct.pack('!ii', int(player_pos[0]), int(player_pos[1])))
-
-                    audio_packets_len = struct.unpack("!I", recv_exact(s, 4))[0]
-                    for _ in range(audio_packets_len):
-                        audio_packet = recv_exact(s, 800)
-                        self.audio_data_to_play.put_nowait(audio_packet)
 
                     joined_count = struct.unpack("!I", recv_exact(s, 4))[0]
                     joined = []
@@ -241,19 +206,6 @@ class Game:
                                         SwordJab([x, y], direction_string)
                                     )
 
-                    audio_packets_to_send = []
-                    while True:
-                        try:
-                            audio_packet = self.audio_data_to_send.get_nowait()
-                            audio_packets_to_send.append(audio_packet)
-                        except queue.Empty:
-                            break
-
-                    s.sendall(struct.pack('!I', len(audio_packets_to_send)))
-                    
-                    for p in audio_packets_to_send:
-                        s.sendall(p)
-
                     time.sleep(0.01)
 
             except ConnectionError:
@@ -265,10 +217,7 @@ class Game:
 
         net_thread = threading.Thread(target=self.network_thread, args=(self.kill_event, self.crash_event))
         net_thread.start()
-        mic_thread = threading.Thread(target=self.mic_thread, args=(self.kill_event, self.crash_event))
-        mic_thread.start()
-        speakerplay_thread = threading.Thread(target=self.speakerplay_thread, args=(self.kill_event, self.crash_event))
-        speakerplay_thread.start() 
+        
 
         while not self.done:
 
