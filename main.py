@@ -242,7 +242,7 @@ class Game:
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
-            s.connect(("10.0.0.97", 9999))
+            s.connect(("209.103.45.67", 9999))
 
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
