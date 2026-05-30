@@ -29,7 +29,9 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = False
+        windowed = True
+
+
 
         if windowed:
             self.window = pygame.display.set_mode(
@@ -60,6 +62,8 @@ class Game:
         self.tilemap_layer_surfaces = []
         self.mic_chunk_size = 400
 
+
+
         tilesurf = pygame.Surface((16*200, 16*200)).convert()
 
         for x in range(0, 200):
@@ -87,6 +91,8 @@ class Game:
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.draw(self.game_surf, self.cam)
+        pygame.draw.circle(self.game_surf, (100, 200, 0), self.cam.offset_point([30, -42]), 8)
+        pygame.draw.circle(self.game_surf, (11, 25, 11), self.cam.offset_point([30, -42]), 8, 1)
 
     def update(self):
         f = False
