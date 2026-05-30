@@ -6,7 +6,7 @@ class SwordJab:
         self.direction = direction
         self.pos = pos
         self.img = pygame.image.load(os.path.join('assets', 'sword.png'))
-        self.extension_offset = 0
+        self.extension_offset = 5
         self.state = 0
 
 
@@ -42,5 +42,5 @@ class SwordJab:
                 self.state = 1
         elif self.state == 1:
             self.extension_offset -= dt * 80
-            if self.extension_offset <= 0:
+            if self.extension_offset <= 5:
                 self.state = 2

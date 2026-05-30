@@ -233,14 +233,14 @@ class Game:
 
                         pos = None
                         d = ''
-                        a = None
+                        can_attack = False
                         with self.player_lock:
                             pos = self.player.pos[:]
                             d = self.player.direction
-                            a = self.player.attacking
-                            if not a:
+                            can_attack = self.player.can_attack
+                            if can_attack:
                                 self.player.attacking = True
-                        if not a:
+                        if can_attack:
                             self.sword_jabs.append(SwordJab(pos, d))
                             db = None
                             if d == 'left':
