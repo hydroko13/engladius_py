@@ -122,172 +122,205 @@ class Game:
             for i, p in self.other_players.items():
                 p.update(self.dt)
 
-    def network_thread(self, kill_event, crash_event):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.connect(("10.0.0.97", 9999))
 
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    
 
-                player_id = struct.unpack("!I", recv_exact(s, 4))[0]
+    def sender_network_thread(self, kill_event, crash_event, s):
+        try:
 
-                self.player_id = player_id
+            last_time = time.monotonic()
+
+            while not kill_event.is_set():
+
+                t = time.monotonic()
+                dt = t - last_time
+                last_time = time.monotonic()
+                player_pos = None
+                with self.player_lock:
+                    player_pos = (self.player.pos[0], self.player.pos[1])
+
+                s.sendall(struct.pack('!ii', int(player_pos[0]), int(player_pos[1])))
+
+
+                events_to_send = []
+                while True:
+                    try:
+                        events_to_send.append(self.events_to_server_queued.get_nowait())
+                    except queue.Empty:
+                        break
+
+                s.sendall(struct.pack('!I', len(events_to_send)))
+
+                for e in events_to_send:
+                    s.sendall(struct.pack("!I", int(len(e))) + e)
+
+                time.sleep(0.01)
+
+        except ConnectionError:
+            print("CRASHED DUE TO NETWORK ERROR")
+            crash_event.set()
+            pass
+
+    def receiver_network_thread(self, kill_event, crash_event, s):
+        try:
+            
+
+            
+            last_time = time.monotonic()
+
+            while not kill_event.is_set():
+
+                t = time.monotonic()
+                dt = t - last_time
                 last_time = time.monotonic()
 
-                while not kill_event.is_set():
+                joined_count = struct.unpack("!I", recv_exact(s, 4))[0]
+                joined = []
 
-                    t = time.monotonic()
-                    dt = t - last_time
-                    last_time = time.monotonic()
-                    player_pos = None
-                    with self.player_lock:
-                        player_pos = (self.player.pos[0], self.player.pos[1])
+                for _ in range(joined_count):
+                    joined.append(struct.unpack("!I", recv_exact(s, 4))[0])
 
-                    s.sendall(struct.pack('!ii', int(player_pos[0]), int(player_pos[1])))
+                left_count = struct.unpack("!I", recv_exact(s, 4))[0]
+                left = []
 
-                    joined_count = struct.unpack("!I", recv_exact(s, 4))[0]
-                    joined = []
+                for _ in range(left_count):
+                    left.append(struct.unpack("!I", recv_exact(s, 4))[0])
 
-                    for _ in range(joined_count):
-                        joined.append(struct.unpack("!I", recv_exact(s, 4))[0])
+                event_count = struct.unpack("!I", recv_exact(s, 4))[0]
+                new_events = []
 
-                    left_count = struct.unpack("!I", recv_exact(s, 4))[0]
-                    left = []
+                for _ in range(event_count):
+                    l = struct.unpack("!I", recv_exact(s, 4))[0]
+                    new_events.append(recv_exact(s, l))
 
-                    for _ in range(left_count):
-                        left.append(struct.unpack("!I", recv_exact(s, 4))[0])
+                
 
-                    event_count = struct.unpack("!I", recv_exact(s, 4))[0]
-                    new_events = []
+                players_count = struct.unpack("!I", recv_exact(s, 4))[0]
 
-                    for _ in range(event_count):
-                        l = struct.unpack("!I", recv_exact(s, 4))[0]
-                        new_events.append(recv_exact(s, l))
+                for i in range(players_count):
+                    other_player_id, x, y = struct.unpack("!Iii", recv_exact(s, 12))
 
-                    events_to_send = []
-                    while True:
-                        try:
-                            events_to_send.append(self.events_to_server_queued.get_nowait())
-                        except queue.Empty:
-                            break
+                    if other_player_id in self.other_players:
+                        self.other_players[other_player_id].target = [x, y]
 
-                    s.sendall(struct.pack('!I', len(events_to_send)))
+                with self.other_players_lock:
 
-                    for e in events_to_send:
-                        s.sendall(struct.pack("!I", int(len(e))) + e)
+                    for j in joined:
+                        self.other_players[j] = Player(0, 0)
 
-                    players_count = struct.unpack("!I", recv_exact(s, 4))[0]
+                    for l in left:
+                        del self.other_players[l]
 
-                    for i in range(players_count):
-                        other_player_id, x, y = struct.unpack("!Iii", recv_exact(s, 12))
+                for e in new_events:
+                    if e[:1] == b'A':
+                        attack_byte, x, y, direction_byte = struct.unpack('!BiiB', e[1:])
+                        direction_string = ''
+                        if direction_byte == 0: 
+                            direction_string = 'left'
+                        elif direction_byte == 1: 
+                            direction_string = 'right'
+                        elif direction_byte == 2: 
+                            direction_string = 'down'
+                        elif direction_byte == 3: 
+                            direction_string = 'up'
 
-                        if other_player_id in self.other_players:
-                            self.other_players[other_player_id].target = [x, y]
+                        if attack_byte == 0: # SWORD
 
-                    with self.other_players_lock:
+                            with self.other_player_sword_jabs_lock:
+                                self.other_player_sword_jabs.append(
+                                    SwordJab([x, y], direction_string)
+                                )
 
-                        for j in joined:
-                            self.other_players[j] = Player(0, 0)
+                time.sleep(0.01)
 
-                        for l in left:
-                            del self.other_players[l]
-
-                    for e in new_events:
-                        if e[:1] == b'A':
-                            attack_byte, x, y, direction_byte = struct.unpack('!BiiB', e[1:])
-                            direction_string = ''
-                            if direction_byte == 0: 
-                                direction_string = 'left'
-                            elif direction_byte == 1: 
-                                direction_string = 'right'
-                            elif direction_byte == 2: 
-                                direction_string = 'down'
-                            elif direction_byte == 3: 
-                                direction_string = 'up'
-
-                            if attack_byte == 0: # SWORD
-
-                                with self.other_player_sword_jabs_lock:
-                                    self.other_player_sword_jabs.append(
-                                        SwordJab([x, y], direction_string)
-                                    )
-
-                    time.sleep(0.01)
-
-            except ConnectionError:
-                print("CRASHED DUE TO NETWORK ERROR")
-                crash_event.set()
-                pass
+        except ConnectionError:
+            print("CRASHED DUE TO NETWORK ERROR")
+            crash_event.set()
+            pass
 
     def run(self):
 
-        net_thread = threading.Thread(target=self.network_thread, args=(self.kill_event, self.crash_event))
-        net_thread.start()
-        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
-        while not self.done:
+            s.connect(("10.0.0.97", 9999))
 
-            self.dt = self.clock.tick() / 1000
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.done = True
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+            player_id = struct.unpack("!I", recv_exact(s, 4))[0]
+
+            self.player_id = player_id
+
+            send_thread = threading.Thread(target=self.sender_network_thread, args=(self.kill_event, self.crash_event, s))
+            send_thread.start()
+            recv_thread = threading.Thread(target=self.receiver_network_thread, args=(self.kill_event, self.crash_event, s))
+            recv_thread.start()
+            
+            
+
+            while not self.done:
+
+                self.dt = self.clock.tick(30) / 1000
+
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         self.done = True
-                    if event.key == pygame.K_o:
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            self.done = True
+                        if event.key == pygame.K_o:
 
-                        pos = None
-                        d = ''
-                        can_attack = False
-                        with self.player_lock:
-                            pos = self.player.pos[:]
-                            d = self.player.direction
-                            can_attack = self.player.can_attack
+                            pos = None
+                            d = ''
+                            can_attack = False
+                            with self.player_lock:
+                                pos = self.player.pos[:]
+                                d = self.player.direction
+                                can_attack = self.player.can_attack
+                                if can_attack:
+                                    self.player.attacking = True
                             if can_attack:
-                                self.player.attacking = True
-                        if can_attack:
-                            self.sword_jabs.append(SwordJab(pos, d))
-                            db = None
-                            if d == 'left':
-                                db = 0
-                            elif d == 'right':
-                                db = 1
-                            elif d == 'down':
-                                db = 2
-                            elif d == 'up':
-                                db = 3
-                            self.events_to_server_queued.put_nowait(
-                                b"A"
-                                + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
-                            )
+                                self.sword_jabs.append(SwordJab(pos, d))
+                                db = None
+                                if d == 'left':
+                                    db = 0
+                                elif d == 'right':
+                                    db = 1
+                                elif d == 'down':
+                                    db = 2
+                                elif d == 'up':
+                                    db = 3
+                                self.events_to_server_queued.put_nowait(
+                                    b"A"
+                                    + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
+                                )
 
-            if self.crash_event.is_set():
-                self.done = True
+                if self.crash_event.is_set():
+                    self.done = True
 
-            self.window.fill((0, 0, 0))
-            self.game_surf.fill((0, 120, 100))
+                self.window.fill((0, 0, 0))
+                self.game_surf.fill((0, 120, 100))
 
-            self.update()
+                self.update()
 
-            self.draw()
+                self.draw()
 
-            scaled_surf = pygame.transform.scale_by(
-                self.game_surf,
-                min(
-                    [
-                        self.window.get_size()[0] // self.base_size[0],
-                        self.window.get_size()[1] // self.base_size[1],
-                    ]
-                ),
-            )
+                scaled_surf = pygame.transform.scale_by(
+                    self.game_surf,
+                    min(
+                        [
+                            self.window.get_size()[0] // self.base_size[0],
+                            self.window.get_size()[1] // self.base_size[1],
+                        ]
+                    ),
+                )
 
-            self.window.blit(scaled_surf, scaled_surf.get_rect(center=(self.window.get_size()[0] / 2, self.window.get_size()[1] / 2)))
+                self.window.blit(scaled_surf, scaled_surf.get_rect(center=(self.window.get_size()[0] / 2, self.window.get_size()[1] / 2)))
 
-            pygame.display.flip()
+                pygame.display.flip()
 
-        self.kill_event.set()
-        net_thread.join()
+            self.kill_event.set()
+            recv_thread.join()
+            send_thread.join()
 
 if __name__ == '__main__':
     print("Engladius client v0.1")
