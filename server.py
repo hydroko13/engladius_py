@@ -285,6 +285,13 @@ class Server:
 
                     self.players[join_request[1]].world_id = dest_world
 
+                    
+
+                    for pid, player in self.players.items():
+                        if pid != join_request[1]:
+                            if player.world_id == src_world:
+                                self.players[join_request[1]].to_broadcast_left.append((pid, dest_world))
+
                     for pid, player in self.players.items():
                         if pid != join_request[1]:
                             if player.world_id == src_world:
