@@ -40,7 +40,7 @@ class Game:
                 vsync=1,
             )
         else:
-            self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx)
+            self.window = pygame.display.set_mode(pygame.display.get_desktop_sizes()[mon_idx], flags=pygame.FULLSCREEN, display=mon_idx, vsync=1)
         self.game_surf = pygame.Surface(self.base_size).convert()
         self.grass_tile = pygame.image.load(os.path.join('assets', 'grass_tile.png')).convert()
         self.clock = pygame.time.Clock()
@@ -61,6 +61,10 @@ class Game:
         self.other_player_sword_jabs_lock = threading.Lock()
         self.tilemap_layer_surfaces = []
         self.mic_chunk_size = 400
+        self.hp = 20
+        self.hp_lock = threading.Lock()
+        self.dead = False
+        self.dead_lock = threading.Lock()
 
 
 
@@ -82,6 +86,8 @@ class Game:
         for j in self.sword_jabs:
             j.draw(self.game_surf, self.cam)
 
+        
+            
         with self.other_player_sword_jabs_lock:
             for j in self.other_player_sword_jabs:
                 j.draw(self.game_surf, self.cam)
@@ -91,8 +97,21 @@ class Game:
         with self.other_players_lock:
             for i, p in self.other_players.items():
                 p.draw(self.game_surf, self.cam)
+
+        hp = 40
+        with self.hp_lock:
+            hp = self.hp
+
         pygame.draw.circle(self.game_surf, (100, 200, 0), self.cam.offset_point([30, -42]), 8)
         pygame.draw.circle(self.game_surf, (11, 25, 11), self.cam.offset_point([30, -42]), 8, 1)
+
+        max_width = 100
+        width = (self.hp / 40) * max_width
+        pygame.draw.rect(self.game_surf, (60, 60, 60), pygame.Rect(self.base_size[0] / 2 - max_width / 2, 12, max_width, 8))
+        pygame.draw.rect(self.game_surf, (221, 3, 3), pygame.Rect(self.base_size[0] / 2 - max_width / 2, 12, width, 8))
+        pygame.draw.rect(self.game_surf, (13, 13, 13), pygame.Rect(self.base_size[0] / 2 - max_width / 2, 12, max_width, 8), 2)
+        
+
 
     def update(self):
         f = False
@@ -174,6 +193,10 @@ class Game:
                 dt = t - last_time
                 last_time = time.monotonic()
 
+                hp = struct.unpack('!i', recv_exact(s, 4))[0]
+                with self.hp_lock:
+                    self.hp = hp
+
                 joined_count = struct.unpack("!I", recv_exact(s, 4))[0]
                 joined = []
 
@@ -230,7 +253,20 @@ class Game:
                                 self.other_player_sword_jabs.append(
                                     SwordJab([x, y], direction_string)
                                 )
-
+                    elif e[:1] == b'd':
+                        dead_player = struct.unpack('!I', e[1:])[0]
+                        print(dead_player, 'd')
+                        with self.other_players_lock:
+                            if dead_player in self.other_players:
+                                print('d')
+                                self.other_players[dead_player].dead = True
+                    
+                    elif e[:1] == b'D':
+                        with self.dead_lock:
+                            self.dead = True
+                        with self.player_lock:
+                            self.player.dead = True
+                            
                 time.sleep(0.01)
 
         except ConnectionError:
@@ -259,7 +295,7 @@ class Game:
 
             while not self.done:
 
-                self.dt = self.clock.tick(30) / 1000
+                self.dt = self.clock.tick() / 1000
 
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -268,31 +304,34 @@ class Game:
                         if event.key == pygame.K_ESCAPE:
                             self.done = True
                         if event.key == pygame.K_o:
-
-                            pos = None
-                            d = ''
-                            can_attack = False
-                            with self.player_lock:
-                                pos = self.player.pos[:]
-                                d = self.player.direction
-                                can_attack = self.player.can_attack
+                            dead = False
+                            with self.dead_lock:
+                                dead = self.dead
+                            if not dead:
+                                pos = None
+                                d = ''
+                                can_attack = False
+                                with self.player_lock:
+                                    pos = self.player.pos[:]
+                                    d = self.player.direction
+                                    can_attack = self.player.can_attack
+                                    if can_attack:
+                                        self.player.attacking = True
                                 if can_attack:
-                                    self.player.attacking = True
-                            if can_attack:
-                                self.sword_jabs.append(SwordJab(pos, d))
-                                db = None
-                                if d == 'left':
-                                    db = 0
-                                elif d == 'right':
-                                    db = 1
-                                elif d == 'down':
-                                    db = 2
-                                elif d == 'up':
-                                    db = 3
-                                self.events_to_server_queued.put_nowait(
-                                    b"A"
-                                    + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
-                                )
+                                    self.sword_jabs.append(SwordJab(pos, d))
+                                    db = None
+                                    if d == 'left':
+                                        db = 0
+                                    elif d == 'right':
+                                        db = 1
+                                    elif d == 'down':
+                                        db = 2
+                                    elif d == 'up':
+                                        db = 3
+                                    self.events_to_server_queued.put_nowait(
+                                        b"A"
+                                        + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
+                                    )
 
                 if self.crash_event.is_set():
                     self.done = True

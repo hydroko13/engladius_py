@@ -82,6 +82,8 @@ class Player:
     to_broadcast_join: deque
     to_broadcast_left: deque
     to_broadcast_gameevents: deque
+    hp: int # max is 20
+    dead: bool
 
 
 def find_mex(numbers):
@@ -124,12 +126,16 @@ class Server:
 
             while not kill_event.is_set():
 
+
+
                 player_positions = {}
                 to_broadcast_join = []
                 to_broadcast_left = []
                 to_broadcast_gameevents = []
+                self_hp = 0
                 with self.players_lock:
                     current_world = self.players[player_id].world_id
+                    self_hp = self.players[player_id].hp
                     for i, p in self.players.items():
                         if p.world_id == current_world:
                             player_positions[i] = (p.x, p.y)
@@ -148,6 +154,8 @@ class Server:
                         ].to_broadcast_gameevents.popleft()
                         if world_id == current_world:
                             to_broadcast_gameevents.append(event_data)
+
+                conn.sendall(struct.pack(b'!i', self_hp))
 
                 count_joined = len(to_broadcast_join)
 
@@ -248,6 +256,25 @@ class Server:
         dt = 0
         while not kill_event.is_set():
 
+            with self.players_lock:
+                dead_players = []
+                for i, p in self.players.items():
+                    if p.hp <= 0 and not p.dead:
+                        self.players[i].hp = 0
+                        self.players[i].dead = True
+                        dead_players.append(i)
+
+                        
+                for d in dead_players:
+                    for i, p in self.players.items():
+                        if i == d:
+                            self.players[i].to_broadcast_gameevents.append((b'D', p.world_id))
+                        else:
+                            self.players[i].to_broadcast_gameevents.append((b'd' + struct.pack('!I', d), p.world_id))
+
+                
+
+
             match_join_positions = []
 
             with self.match_join_npcs_lock:
@@ -255,6 +282,12 @@ class Server:
                     match_join_positions.append((npc.x, npc.y, npc.gamemode))
 
             gamemodes_requested_join = []
+            player_positions = {}
+            with self.players_lock:
+                for i, p in self.players.items():
+                    player_positions[i] = (p.x, p.y, p.world_id)
+
+            player_ids_hit = []
 
             with self.sword_jabs_lock:
                 for s in self.sword_jabs:
@@ -277,7 +310,32 @@ class Server:
                             
                             self.sword_jabs[idx].hit_something = True
                             gamemodes_requested_join.append((gamemode, s.player_id))
+
+                for player_id, player_pos in player_positions.items():
+                    for idx, s in enumerate(self.sword_jabs):
+                        hit = False
+                        if (not s.hit_something) and s.world_id == player_pos[2]:
+                            if s.player_id != player_id:
+                                collide_points = s.get_collision_points()
+                                for c in collide_points:
+                                    distance = math.dist(c, (player_pos[0], player_pos[1]))
+                                    if distance <= 8.3:
+                                        hit = True
+                                        break
+                        if hit:
+                            player_ids_hit.append(player_id)
+                            
+                            self.sword_jabs[idx].hit_something = True
+
+
+
             with self.players_lock:
+
+                for p in player_ids_hit:
+                    if p in self.players:
+                        self.players[p].hp -= 6
+
+
                 for join_request in gamemodes_requested_join:
                     
                     dest_world = 1
@@ -331,7 +389,7 @@ class Server:
                     print(f'Player {addr} (id: {player_id}) joined.')   
                     already_joined = self.players.items()
 
-                    self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque()) # x, y, world, etc... (the 3rd zero is the world_id)
+                    self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque(), 40, False) # x, y, world, etc... (the 3rd zero is the world_id)
                     for player_id2, player in self.players.items():
                         if player_id2 != player_id:
                             self.players[player_id2].to_broadcast_join.append((player_id, 0)) # join world 0
