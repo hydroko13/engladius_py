@@ -29,7 +29,7 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = True
+        windowed = False
 
 
 
