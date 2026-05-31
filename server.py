@@ -333,7 +333,7 @@ class Server:
 
                 for p in player_ids_hit:
                     if p in self.players:
-                        self.players[p].hp -= 6
+                        self.players[p].hp -= 2
 
 
                 for join_request in gamemodes_requested_join:
