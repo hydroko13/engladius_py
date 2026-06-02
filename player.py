@@ -23,7 +23,7 @@ class Player:
         if self.is_main:
             if not self.attacking:
                 self.attack_cooldown += dt
-                if self.attack_cooldown > 0.8:
+                if self.attack_cooldown > 0.105:
                     self.can_attack = True
                     self.can_move = True
 
