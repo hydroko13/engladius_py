@@ -11,13 +11,11 @@ class Player:
         self.can_move = True
         self.can_attack = True
         self.attack_cooldown = 0.0
-        self.dead = False
 
     def draw(self, surf, cam):
-        if not self.dead:
             
-            pygame.draw.circle(surf, (0, 200, 0), cam.offset_point(self.pos), 8)
-            pygame.draw.circle(surf, (11, 25, 11), cam.offset_point(self.pos), 8, 1)
+        pygame.draw.circle(surf, (0, 200, 0), cam.offset_point(self.pos), 8)
+        pygame.draw.circle(surf, (11, 25, 11), cam.offset_point(self.pos), 8, 1)
 
     def update(self, dt):
         if self.is_main:
@@ -34,7 +32,7 @@ class Player:
                 self.can_attack = False
                 self.can_move = False
 
-            if self.can_move and not self.dead:
+            if self.can_move:
                 keys = pygame.key.get_pressed()
                 if keys[pygame.K_a]:
                     self.pos[0] -= dt * 90

@@ -63,8 +63,7 @@ class Game:
         self.mic_chunk_size = 400
         self.hp = 20
         self.hp_lock = threading.Lock()
-        self.dead = False
-        self.dead_lock = threading.Lock()
+
 
 
 
@@ -255,17 +254,13 @@ class Game:
                                 )
                     elif e[:1] == b'd':
                         dead_player = struct.unpack('!I', e[1:])[0]
-                        print(dead_player, 'd')
                         with self.other_players_lock:
                             if dead_player in self.other_players:
-                                print('d')
-                                self.other_players[dead_player].dead = True
+                                self.other_players[dead_player].pos = [0, 0]
                     
                     elif e[:1] == b'D':
-                        with self.dead_lock:
-                            self.dead = True
                         with self.player_lock:
-                            self.player.dead = True
+                            self.player.pos = [0, 0]
                             
                 time.sleep(0.01)
 
@@ -304,34 +299,31 @@ class Game:
                         if event.key == pygame.K_ESCAPE:
                             self.done = True
                         if event.key == pygame.K_o:
-                            dead = False
-                            with self.dead_lock:
-                                dead = self.dead
-                            if not dead:
-                                pos = None
-                                d = ''
-                                can_attack = False
-                                with self.player_lock:
-                                    pos = self.player.pos[:]
-                                    d = self.player.direction
-                                    can_attack = self.player.can_attack
-                                    if can_attack:
-                                        self.player.attacking = True
+            
+                            pos = None
+                            d = ''
+                            can_attack = False
+                            with self.player_lock:
+                                pos = self.player.pos[:]
+                                d = self.player.direction
+                                can_attack = self.player.can_attack
                                 if can_attack:
-                                    self.sword_jabs.append(SwordJab(pos, d))
-                                    db = None
-                                    if d == 'left':
-                                        db = 0
-                                    elif d == 'right':
-                                        db = 1
-                                    elif d == 'down':
-                                        db = 2
-                                    elif d == 'up':
-                                        db = 3
-                                    self.events_to_server_queued.put_nowait(
-                                        b"A"
-                                        + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
-                                    )
+                                    self.player.attacking = True
+                            if can_attack:
+                                self.sword_jabs.append(SwordJab(pos, d))
+                                db = None
+                                if d == 'left':
+                                    db = 0
+                                elif d == 'right':
+                                    db = 1
+                                elif d == 'down':
+                                    db = 2
+                                elif d == 'up':
+                                    db = 3
+                                self.events_to_server_queued.put_nowait(
+                                    b"A"
+                                    + struct.pack("!BiiB", 0, int(pos[0]), int(pos[1]), db)
+                                )
 
                 if self.crash_event.is_set():
                     self.done = True

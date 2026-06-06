@@ -83,8 +83,6 @@ class Player:
     to_broadcast_left: deque
     to_broadcast_gameevents: deque
     hp: int # max is 20
-    dead: bool
-
 
 def find_mex(numbers):
     num_set = set(numbers)
@@ -259,13 +257,13 @@ class Server:
             with self.players_lock:
                 dead_players = []
                 for i, p in self.players.items():
-                    if p.hp <= 0 and not p.dead:
-                        self.players[i].hp = 0
-                        self.players[i].dead = True
+                    if p.hp <= 0:
+                        self.players[i].hp = 40
                         dead_players.append(i)
 
                         
                 for d in dead_players:
+                    self.players
                     for i, p in self.players.items():
                         if i == d:
                             self.players[i].to_broadcast_gameevents.append((b'D', p.world_id))
@@ -389,7 +387,7 @@ class Server:
                     print(f'Player {addr} (id: {player_id}) joined.')   
                     already_joined = self.players.items()
 
-                    self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque(), 40, False) # x, y, world, etc... (the 3rd zero is the world_id)
+                    self.players[player_id] = Player(0, 0, 0, deque([(k, v.world_id) for k, v in already_joined]), deque(), deque(), 40) # x, y, world, etc... (the 3rd zero is the world_id)
                     for player_id2, player in self.players.items():
                         if player_id2 != player_id:
                             self.players[player_id2].to_broadcast_join.append((player_id, 0)) # join world 0
