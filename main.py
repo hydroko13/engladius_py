@@ -8,6 +8,7 @@ from camera import Camera
 from sword_jab import SwordJab
 import queue
 import os
+from hit_particle import HitParticle
 
 def recv_exact(sock, n_bytes):
     buffer = bytearray()
@@ -29,7 +30,7 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = False
+        windowed = True
 
 
 
@@ -62,6 +63,8 @@ class Game:
         self.tilemap_layer_surfaces = []
         self.mic_chunk_size = 400
         self.hp = 20
+        self.hit_particles = []
+        self.hit_particles_lock = threading.Lock()
         self.hp_lock = threading.Lock()
 
 
@@ -103,6 +106,11 @@ class Game:
 
         pygame.draw.circle(self.game_surf, (100, 200, 0), self.cam.offset_point([30, -42]), 8)
         pygame.draw.circle(self.game_surf, (11, 25, 11), self.cam.offset_point([30, -42]), 8, 1)
+        
+        with self.hit_particles_lock:
+            for p in self.hit_particles:
+                p.draw(self.game_surf, self.cam)
+            
 
         max_width = 100
         width = (self.hp / 40) * max_width
@@ -113,6 +121,14 @@ class Game:
 
 
     def update(self):
+        
+                
+        with self.hit_particles_lock:
+            for p in self.hit_particles:
+                p.update(self.dt)
+            self.hit_particles = [h for h in self.hit_particles if h.l < h.ml]
+            
+        
         f = False
         for j in self.sword_jabs:
             j.update(self.dt)
@@ -257,6 +273,13 @@ class Game:
                         with self.other_players_lock:
                             if dead_player in self.other_players:
                                 self.other_players[dead_player].pos = [0, 0]
+                    elif e[:1] == b'V':
+                        x, y = struct.unpack('!ii', e[1:])
+                        with self.hit_particles_lock:
+                            for i in range(12):
+                                
+                                self.hit_particles.append(HitParticle(x, y, i * (360 / 12)))
+                        
                     
                     elif e[:1] == b'D':
                         with self.player_lock:
@@ -273,7 +296,7 @@ class Game:
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
-            s.connect(("209.103.45.67", 9999))
+            s.connect(("127.0.0.1", 9999))
 
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 

@@ -332,6 +332,11 @@ class Server:
                 for p in player_ids_hit:
                     if p in self.players:
                         self.players[p].hp -= 2
+                    if p in self.players:
+                        for p2, _ in self.players.items():
+                            
+                            self.players[p2].to_broadcast_gameevents.append((b'V' + struct.pack(b'!ii', self.players[p].x, self.players[p].y), self.players[p2].world_id))
+                                
 
 
                 for join_request in gamemodes_requested_join:
