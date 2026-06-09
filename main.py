@@ -1,5 +1,6 @@
 import threading
 import pygame
+import math
 import struct
 from player import Player
 import socket
@@ -30,7 +31,7 @@ class Game:
         self.base_size = (480, 270)
 
         mon_idx = 0
-        windowed = True
+        windowed = False
 
 
 
@@ -85,8 +86,16 @@ class Game:
         for l in self.tilemap_layer_surfaces:
             self.game_surf.blit(l, self.cam.offset_point((-100 * 16, -100 * 16)))
 
+        with self.hit_particles_lock:
+            for p in self.hit_particles:
+                p.draw(self.game_surf, self.cam)
+            
+
         for j in self.sword_jabs:
             j.draw(self.game_surf, self.cam)
+
+
+
 
         
             
@@ -107,10 +116,6 @@ class Game:
         pygame.draw.circle(self.game_surf, (100, 200, 0), self.cam.offset_point([30, -42]), 8)
         pygame.draw.circle(self.game_surf, (11, 25, 11), self.cam.offset_point([30, -42]), 8, 1)
         
-        with self.hit_particles_lock:
-            for p in self.hit_particles:
-                p.draw(self.game_surf, self.cam)
-            
 
         max_width = 100
         width = (self.hp / 40) * max_width
@@ -277,8 +282,8 @@ class Game:
                         x, y = struct.unpack('!ii', e[1:])
                         with self.hit_particles_lock:
                             for i in range(12):
-                                
-                                self.hit_particles.append(HitParticle(x, y, i * (360 / 12)))
+                                a = i * (360 / 12)
+                                self.hit_particles.append(HitParticle(x + math.cos(math.radians(a)) * 6, y + math.sin(math.radians(a)) * 6, a))
                         
                     
                     elif e[:1] == b'D':
@@ -296,7 +301,7 @@ class Game:
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
-            s.connect(("127.0.0.1", 9999))
+            s.connect(("209.103.45.67", 9999))
 
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
