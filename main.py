@@ -86,9 +86,9 @@ class Game:
         for l in self.tilemap_layer_surfaces:
             self.game_surf.blit(l, self.cam.offset_point((-100 * 16, -100 * 16)))
 
-        with self.hit_particles_lock:
-            for p in self.hit_particles:
-                p.draw(self.game_surf, self.cam)
+        # with self.hit_particles_lock:
+        #     for p in self.hit_particles:
+        #         p.draw(self.game_surf, self.cam)
             
 
         for j in self.sword_jabs:
@@ -280,10 +280,10 @@ class Game:
                                 self.other_players[dead_player].pos = [0, 0]
                     elif e[:1] == b'V':
                         x, y = struct.unpack('!ii', e[1:])
-                        with self.hit_particles_lock:
-                            for i in range(12):
-                                a = i * (360 / 12)
-                                self.hit_particles.append(HitParticle(x + math.cos(math.radians(a)) * 6, y + math.sin(math.radians(a)) * 6, a))
+                        # with self.hit_particles_lock:
+                        #     for i in range(12):
+                        #         a = i * (360 / 12)
+                        #         self.hit_particles.append(HitParticle(x + math.cos(math.radians(a)) * 6, y + math.sin(math.radians(a)) * 6, a))
                         
                     
                     elif e[:1] == b'D':
